@@ -58,7 +58,7 @@ cd /yolov7
 [`yolov7.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7.pt) [`yolov7x.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7x.pt) [`yolov7-w6.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-w6.pt) [`yolov7-e6.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-e6.pt) [`yolov7-d6.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-d6.pt) [`yolov7-e6e.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-e6e.pt)
 
 ``` shell
-python test.py --data data/coco.yaml --img 640 --batch 32 --conf 0.001 --iou 0.65 --device 0 --weights yolov7.pt --name yolov7_640_val
+python test.py --data data/coco.yaml --img 640 --batch 32 --conf 0.001 --iou 0.65 --device 0 --weights yolov7.pt --name yolov7_640_val --eval-data instances_val2017.json --save-json
 ```
 
 You will get the results:
@@ -79,6 +79,8 @@ You will get the results:
 ```
 
 To measure accuracy, download [COCO-annotations for Pycocotools](http://images.cocodataset.org/annotations/annotations_trainval2017.zip) to the `./coco/annotations/instances_val2017.json`
+
+If you want to use COCO subset, replace instances_val2017.json with instances_val2017_subset.json.
 
 ## Training
 
@@ -149,39 +151,57 @@ python detect.py --weights yolov7.pt --conf 0.25 --img-size 640 --source inferen
 
 ## Export
 
-**Pytorch to CoreML (and inference on MacOS/iOS)** <a href="https://colab.research.google.com/github/WongKinYiu/yolov7/blob/main/tools/YOLOv7CoreML.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
+**ONNX export for Triton Inference**
 
-**Pytorch to ONNX with NMS (and inference)** <a href="https://colab.research.google.com/github/WongKinYiu/yolov7/blob/main/tools/YOLOv7onnx.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
-```shell
-python export.py --weights yolov7-tiny.pt --grid --end2end --simplify \
-        --topk-all 100 --iou-thres 0.65 --conf-thres 0.35 --img-size 640 640 --max-wh 640
+```bash
+$ python export.py --weights yolov7-tiny.pt --simplify --grid --device 0
 ```
 
-**Pytorch to TensorRT with NMS (and inference)** <a href="https://colab.research.google.com/github/WongKinYiu/yolov7/blob/main/tools/YOLOv7trt.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
-
-```shell
-wget https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-tiny.pt
-python export.py --weights ./yolov7-tiny.pt --grid --end2end --simplify --topk-all 100 --iou-thres 0.65 --conf-thres 0.35 --img-size 640 640
-git clone https://github.com/Linaom1214/tensorrt-python.git
-python ./tensorrt-python/export.py -o yolov7-tiny.onnx -e yolov7-tiny-nms.trt -p fp16
+**TensorRT**
+```bash
+$ python export.py --weights yolov7-tiny.pt --device 0 --grid --simplify --trt
 ```
 
-**Pytorch to TensorRT another way** <a href="https://colab.research.google.com/gist/AlexeyAB/fcb47ae544cf284eb24d8ad8e880d45c/yolov7trtlinaom.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a> <details><summary> <b>Expand</b> </summary>
-
-
-```shell
-wget https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-tiny.pt
-python export.py --weights yolov7-tiny.pt --grid --include-nms
-git clone https://github.com/Linaom1214/tensorrt-python.git
-python ./tensorrt-python/export.py -o yolov7-tiny.onnx -e yolov7-tiny-nms.trt -p fp16
-
-# Or use trtexec to convert ONNX to TensorRT engine
-/usr/src/tensorrt/bin/trtexec --onnx=yolov7-tiny.onnx --saveEngine=yolov7-tiny-nms.trt --fp16
+**TensorRT with FP16**
+```bash
+$ python export.py --weights yolov7-tiny.pt --device 0 --grid --simplify --trt --fp16
 ```
 
-</details>
+**TensorRT with INT8**
+```bash
+$ python export.py --weights yolov7-tiny.pt --device 0 --grid --simplify --trt --int8 --calibrate --calib-num-images 200 --calib-batch-size 4 --calib-algo minmax --seed 20
+```
 
-Tested with: Python 3.7.13, Pytorch 1.12.0+cu113
+**TensorRT with NMS plugin**
+```bash
+$ python export.py --weights yolov7-tiny.pt --device 0 --grid --simplify --trt --end2end_trt --conf-thres 0.45 --iou-thres 0.25 --topk-all 150
+```
+
+**TensorRT with sparsification**
+```bash
+$ python export.py --weights yolov7-tiny.pt --device 0 --grid --simplify --trt --sparsify --prop 0.1 [--struct]
+```
+Set the --struct flag for structured pruning.
+
+## Evaluation on TensorRT models
+
+**Without NMS plugin**
+```bash
+$ python trt_inference.py --weights yolov7-tiny.engine --data data/coco_subset.yaml
+```
+If you are using a pruned engine, then
+```bash
+$ python trt_inference.py --weights yolov7-tiny_pruned.engine --data data/coco_subset.yaml
+```
+
+**With NMS plugin**
+```bash
+$ python trt_inference_nms.py --weights yolov7-tiny.engine --data data/coco_subset.yaml
+```
+If you are using a pruned engine, then
+```bash
+$ python trt_inference_nms.py --weights yolov7-tiny_pruned.engine --data data/coco_subset.yaml
+```
 
 ## Pose estimation
 
